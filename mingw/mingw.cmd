@@ -1,0 +1,1 @@
+cmd /k set path=C:\MinGW\bin;%path%
