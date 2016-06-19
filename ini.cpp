@@ -2,25 +2,30 @@
  INI File Processor.
  Optimized INI text file processor for the embedded c++ system.
  Written by Huirak Lee (huirak.lee@gmail.com)
- Version 5.5.0, 2016/6/6
+ Version 5.9.0, 2016/6/19
 
  Official Repository.
  https://bitbucket.org/mobileoff/ini
+
+ Introduction.
+ This toolkit was designed to achieve the best performance, and provide the convenience for managing standard INI file.
+ Not only best for the embedded operating system, but also good for the non embedded system.
 
  Copyright (C) Huirak Lee. All rights reserved.
  The copyright of this toolkit is guaranteed in accordance with the international copyright law.
 
  For the Personal or Educational or Open Source Project Use.
- You may use this whole program, or part of the codes, for the personal purpose or the educational purpose also Open Source Projects under the following restrictions:
+ You may use this whole program, or part of the codes, for the personal purpose or the educational purpose also open source projects under the following restrictions:
  This toolkit may be redistributed while keeping untouched whole codes and program informations, original author name, license agreement and revision history. Modified codes shall not be redistributed.
  Any modified or derived source codes will descend this license policy and the copyright, so it's ownership belongs to the original author.
  If you found bugs or any improvement idea, let the original author know that to enhance the code quality and to fix possible bugs.
 
  For the Commercial Use.
  Contact the original author if you want to use this toolkit under the commercial purpose.
- Even if you are using this toolkit that belongs to some open source projects used in commercial applications subject to commercial licensing rules.
+ Even if you are using this toolkit that belongs to some open source projects used in commercial applications, it is subjected to the commercial licensing rules.
 
  Revision History.
+ v5.9.0, 160619, huirak.lee, Unlimit sect, key, and value length. Enhance GetTimeStamp performance. Add ValidateFormat to validate character set and basic INI formatting. Change CRC value format into string. Cygwin ports. FromString stops parsing when the string pool is out of space. Fix fopen read option of the ValidateFile. Fix app crash while saving empty INI file. Fix first timestamp not updated in case of the time element is 0.
  v5.5.0, 160606, huirak.lee, Faster parsing speed for FromString, but source string will be touched. Remove dynamic allocation of sect, key, value in FromString. Process dirty format ini. Add CreateNewItem. Reorder protected member variables and functions. Virtualize destructor ~Ini.
  v5.4.0, 160605, huirak.lee, Port to Visual Studio 2015, WIN32 platform. Ini now have two license type: free and commercial. Separate test codes to the test-ini.cpp. EOL character will be automatically selected to the compiler platform. Embed logging function to the Ini class.
  v5.3.5, 160604, huirak.lee, Fix Stopwatch time miscalculated in the MINGW compiler.
@@ -82,17 +87,21 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <stdarg.h>
-#include <algorithm>
-//#include <unistd.h> //unsupported in the vs2015
 #include <io.h>
+#include <assert.h>
 
-#ifdef WIN32
-	#include <winsock.h> //for htonl function.
-	#include <tchar.h>
-	#define ultoa _ultoa
+#if defined WIN32
+#include <winsock.h> //for htonl function.
+#include <tchar.h>
+#define ultoa _ultoa
+#elif defined __CYGWIN__ 
+#include <tchar.h> 
+#include <arpa/inet.h> //for htonl function. 
 #else
-	#include <arpa/inet.h> //for htonl function.
+#include <arpa/inet.h> //for htonl function.
 #endif
+
+#include <algorithm>
 
 #include "ini.h"
 
@@ -109,8 +118,38 @@ using namespace std;
 #define EOL_LEN (sizeof(EOL)-1)
 
 static const unsigned char crcHeaderSig[4] = {'C','R','C','='};
-static const int crc32Size = 4;
-static const int crcHeaderSize = sizeof(crcHeaderSig) + crc32Size + EOL_LEN;
+static const int crc32StrSize = 4*2;//string format like '00ABCDEF'
+static const int crcHeaderSize = sizeof(crcHeaderSig) + crc32StrSize + EOL_LEN;
+
+//hexstr output is like 00ABCD..
+//hexstr length shall be sizebin * 2
+const char* 
+BinToHexStr(void* bin, size_t sizebin, char* hexstr, size_t sizehex)
+{
+	if (bin == NULL || hexstr == NULL) {
+		return NULL;
+	}
+	const unsigned char* p = (unsigned char*) bin;
+	char *q = hexstr;
+	//LOGD("%s : sizebin=%d", __FUNCTION__, sizebin);
+	size_t len = min(sizebin, sizehex/2);
+	for (unsigned int i = 0; i<len; i++) {
+		//LOGD("%02X ",(unsigned char)*p);
+		if (*p >= 16) *q = *p / 16 >= 10 ? ('A' + *p / 16 - 10) : '0' + *p / 16;
+		else *q = '0';
+		q++;
+		if (*p % 16) *q = *p % 16 >= 10 ? ('A' + *p % 16 - 10) : ('0' + *p % 16);
+		else *q = '0';
+		q++;
+		if (i + 1 == len) {
+			*q = 0;
+			break;
+		}
+		p++;
+	}
+	//LOGD("\n");
+	return hexstr;
+}
 
 int Ini::logLevel = Normal;
 
@@ -128,41 +167,108 @@ Ini::Dprintf(int level, const char* fmt, ...)
 
 #ifdef __MINGW32__
 #include <sys/time.h>
-//#include <time.h>
 #else
 #include <time.h>
 #endif
 
-string 
+const char*
 Ini::GetTimeStamp()
 {
-	//Omit variable initializing for the performance.
-	char timeStr[sizeof("[HH:MM:SS.MLS]")];
-#if defined(WIN32) && !defined(__MINGW32__)
+	static char timeStr[]="[HH:MM:SS.MLS]";
+#if defined(WIN32) || defined(__MINGW32__)
 	SYSTEMTIME stNow;
+	static SYSTEMTIME stLast = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 	GetSystemTime(&stNow);
-
-	snprintf(timeStr, sizeof(timeStr), "[%02d:%02d:%02d.%03ld]",
+	if (memcmp(&stNow, &stLast, sizeof(SYSTEMTIME))==0) {
+		return timeStr;
+	}
+#if 1
+	//fast.
+	snprintf(timeStr, sizeof(timeStr), "[%02d:%02d:%02d.%03d]",
 		stNow.wHour,
 		stNow.wMinute,
 		stNow.wSecond,
 		stNow.wMilliseconds);
 #else
-	timeval tvNow;
-	tm* tmNow = NULL;
-
-	gettimeofday(&tvNow, NULL);
-	tmNow = gmtime(&tvNow.tv_sec);
-
-	//TBD: Must regard sprintf functional safety OS by OS such as QNX. http://www.qnx.com/developers/docs/6.3.0SP3/neutrino/lib_ref/s/snprintf.html
-	snprintf(timeStr, sizeof(timeStr), "[%02d:%02d:%02d.%03ld]",
-		tmNow->tm_hour,
-		tmNow->tm_min,
-		tmNow->tm_sec,
-		tvNow.tv_usec / 1000);
+	//slow. why?
+	//timeStr[0] = '[';
+	if (stNow.wHour != stLast.wHour) {
+		timeStr[1] = '0' + stNow.wHour / 10;
+		timeStr[2] = '0' + stNow.wHour % 10;
+	}
+	//timeStr[3] = ':';
+	if (stNow.wMinute != stLast.wMinute) {
+		timeStr[4] = '0' + stNow.wMinute / 10;
+		timeStr[5] = '0' + stNow.wMinute % 10;
+	}
+	//timeStr[6] = ':';
+	if (stNow.wSecond != stLast.wSecond) {
+		timeStr[7] = '0' + stNow.wSecond / 10;
+		timeStr[8] = '0' + stNow.wSecond % 10;
+	}
+	//timeStr[9] = '.';
+	if (stNow.wMilliseconds != stLast.wMilliseconds) {
+		timeStr[10] = '0' + stNow.wMilliseconds / 100;
+		timeStr[11] = '0' + stNow.wMilliseconds / 10 % 10;
+		timeStr[12] = '0' + stNow.wMilliseconds % 10;
+	}
 #endif
-	//Don't looks good to return object in the point of forpermance view, but mutex + static char buffer is not adaquete in this purpose. We can consider use static char buffer only and restrict to use only for the logging purpose.
-	return string(timeStr);
+	//timeStr[13] = ']';
+	//timeStr[14] = 0;
+	memcpy(&stLast,&stNow,sizeof(SYSTEMTIME));	
+#else
+	timespec tsNow;	
+	static timespec tsLast = { -1, -1 };
+	tm tmNow;
+	static tm tmLast = { -1,-1,-1,-1,-1,-1,-1,-1,-1 };
+
+    if( clock_gettime(CLOCK_REALTIME, &tsNow) == -1 ) {
+    	perror( "clock_gettime" );
+    	return NULL;
+    }
+
+	if (memcmp(&tsNow, &tsLast, sizeof(timespec))==0) {
+		return timeStr;
+	}
+
+	gmtime_r(&tsNow.tv_sec, &tmNow);
+#if 0
+	//slow - cygwin only
+	snprintf(timeStr, sizeof(timeStr), "[%02d:%02d:%02d.%03ld]",
+		tmNow.tm_hour,
+		tmNow.tm_min,
+		tmNow.tm_sec,
+		tsNow.tv_nsec / 1000000);
+#else
+	//fast
+	if (tmNow.tm_hour != tmLast.tm_hour) {
+		timeStr[1] = '0' + tmNow.tm_hour / 10;
+		timeStr[2] = '0' + tmNow.tm_hour % 10;
+	}
+	//timeStr[3] = ':';
+	if (tmNow.tm_min != tmLast.tm_min) {
+		timeStr[4] = '0' + tmNow.tm_min / 10;
+		timeStr[5] = '0' + tmNow.tm_min % 10;
+	}
+	//timeStr[6] = ':';
+	if (tmNow.tm_sec != tmLast.tm_sec) {
+		timeStr[7] = '0' + tmNow.tm_sec / 10;
+		timeStr[8] = '0' + tmNow.tm_sec % 10;
+	}
+	//timeStr[9] = '.';
+	if (tsNow.tv_nsec != tsLast.tv_nsec) {
+		int ms = tsNow.tv_nsec / 1000000;
+		timeStr[10] = '0' + ms / 100;
+		timeStr[11] = '0' + ms / 10 % 10;
+		timeStr[12] = '0' + ms % 10;
+	}
+#endif
+	//timeStr[13] = ']';
+	//timeStr[14] = 0;	
+	memcpy(&tmLast,&tmNow,sizeof(tm));
+	memcpy(&tsLast,&tsNow,sizeof(timespec));	
+#endif
+	return timeStr;
 }
 
 //+For Visual Studio 2015
@@ -264,7 +370,7 @@ GetCRC32(char *buf, int bufLen)
 static bool 
 FlushFile(FILE* file)
 {
-#ifdef WIN32 //__MINGW32__
+#if defined WIN32 || defined __CYGWIN__ //__MINGW32__
 	int flush_res = fflush(file);
 	if (flush_res) {
 		LOGE("flush : %s\n", strerror(errno));
@@ -285,7 +391,6 @@ FlushFile(FILE* file)
 	return true;	
 }
 
-//+huirak.lee 091118
 class FileBuffer
 {
 protected:	
@@ -363,14 +468,17 @@ public:
 
 Ini::Ini(const int strpoolsize/*=256*1024*/)
 {
-	LOGD("%s, poolsize=%d\n",__FUNCTION__,strpoolsize);
-	iniFileName[0]=0;
+	LOGD("%s, poolsize=%d\n", __FUNCTION__, strpoolsize);
+	iniFileName[0] = 0;
 
 	sects.reserve(100);
 	lastParsedSection = sects.end();
 
-	sizPool = strpoolsize;
-	strPool = (char*) malloc(sizPool);
+	strPool = (char*)malloc(strpoolsize);
+	if (strPool) {
+		sizPool = strpoolsize;
+		remPool = strpoolsize;
+	}
 	posPool = 0;
 }
 
@@ -392,9 +500,10 @@ Ini::Reset()
 	memset(iniFileName,0,sizeof(iniFileName));
 	memset(strPool,0,sizPool);
 	posPool = 0;
+	remPool = sizPool;
 }
 
-//TBD: Realloc strPool when it is out of space.
+//TBD: Reallocate strPool when it is out of space.
 const char* 
 Ini::PushString(const char* s) 
 {
@@ -405,6 +514,7 @@ Ini::PushString(const char* s)
 	}
 	memcpy(strPool + posPool, s, room);
 	posPool += room;
+	remPool -= room;
 	return strPool + posPool - room;
 }
 
@@ -460,15 +570,14 @@ Ini::LoadFile(const char* theFileName, bool checkCRC)
 
 		*(buf + fileSize) = 0;
 
-		int crcHeaderSize = sizeof(crcHeaderSig) + crc32Size + EOL_LEN;
-		
-		//+fix broken file issue - 141117
 		bool haveCRC = false;
 		if (crcHeaderSize < fileSize && memcmp(buf, crcHeaderSig, sizeof(crcHeaderSig))==0) {
 			haveCRC = true;
 			if (checkCRC) {
+				char crc32str[crc32StrSize + 1] = { 0 };
 				unsigned int crc32;
-				memcpy(&crc32,buf+sizeof(crcHeaderSig),crc32Size);
+				memcpy(&crc32str,buf+sizeof(crcHeaderSig),crc32StrSize);
+				HexStringToByteArray(crc32str, (unsigned char*)&crc32, sizeof(crc32));
 				crc32 = ntohl(crc32);
 				if (crc32!=GetCRC32(buf+crcHeaderSize,strSize-crcHeaderSize)) {
 					LOGE("CRC checksum fail. broken file : %s\n",theFileName);
@@ -479,7 +588,6 @@ Ini::LoadFile(const char* theFileName, bool checkCRC)
 
 		Reset();
 
-		//+fix first item omit bug - 120807
 		if (haveCRC) {
 			if (!FromString(buf + crcHeaderSize, strSize - crcHeaderSize, true)) {
 				break;
@@ -498,11 +606,10 @@ Ini::LoadFile(const char* theFileName, bool checkCRC)
 	return result;
 }
 
-//+To fix broken file issue - 141117
 bool
 Ini::ValidateFile(const char* theFileName)
 {
-	FILE* file = fopen(theFileName, "r");	
+	FILE* file = fopen(theFileName, "rb");	
 	if (file == NULL) {
 		LOGE("fopen : %s (%s)\n", theFileName, strerror(errno));
 		return false;
@@ -532,10 +639,12 @@ Ini::ValidateFile(const char* theFileName)
 		}
 		if (memcmp(buf, crcHeaderSig, sizeof(crcHeaderSig))==0) {
 			unsigned int crc32;
-			memcpy(&crc32,buf+sizeof(crcHeaderSig),crc32Size);
+			char crc32str[crc32StrSize + 1] = { 0 };
+			memcpy(&crc32str, buf + sizeof(crcHeaderSig), crc32StrSize);
+			HexStringToByteArray(crc32str, (unsigned char*)&crc32, sizeof(crc32));
 			crc32 = ntohl(crc32);
-			if (crc32!=GetCRC32(buf+crcHeaderSize,strSize-crcHeaderSize)) {
-				LOGE("CRC checksum fail. broken file : %s\n",theFileName);
+			if (crc32 != GetCRC32(buf + crcHeaderSize, strSize - crcHeaderSize)) {
+				LOGE("CRC checksum fail. broken file : %s\n", theFileName);
 				break;
 			}
 		} else {
@@ -549,17 +658,33 @@ Ini::ValidateFile(const char* theFileName)
 	return result;
 }
 
+bool 
+Ini::ValidateFormat(const char * buf, size_t buflen)
+{
+	const char *p = buf;
+	const char *e = buf + min((size_t)100, buflen);
+	int inich = 0;
+
+	while (p < e) {
+		if ((*p < 33 || 126 < *p) && *p!='\r' && *p!='\n' && *p!=' ' && *p!='\t' ) {
+			LOGD("Invalid character at %d : 0x%X\n", p - buf, (unsigned char)*p);
+			return false;
+		} else if (*p == '=' || *p == '[' || *p==']') {
+			inich++;
+		}
+		p++;
+	}
+	return 0 < inich;
+}
+
 bool
 Ini::SaveFile(const char* theFileName, bool writeCRC)
 {
 	const char *fileName = theFileName ? theFileName : iniFileName;
-	//+fix broken file issue - 141117
-	LOGD("fopen for write : %s\n", fileName);
-
 	bool result = false;
 
+	LOGD("fopen for write : %s\n", fileName);
 	FILE* file = fopen(fileName, "wb");
-
 	if (file==NULL) {
 		LOGE("fopen : %s (%s)\n", fileName, strerror(errno));
 		return false;
@@ -567,15 +692,13 @@ Ini::SaveFile(const char* theFileName, bool writeCRC)
 
 	do {
 		FileBuffer fb(file, 128*1024, fileName);
-
-		//+++Write CRC checksum header - huirak.lee 160530
 		if (writeCRC) {
 			if (fwrite(crcHeaderSig,sizeof(crcHeaderSig),1,file)<1) {
 				LOGE("fwrite crcHeaderSig : %s (%s)\n", fileName, strerror(errno));
 				break;
 			}
-			int crcDummy=0;
-			if (fwrite(&crcDummy,4,1,file)<1) {
+			char crcDummy[crc32StrSize] = { 0 };
+			if (fwrite(&crcDummy,crc32StrSize,1,file)<1) {
 				LOGE("fwrite crcDummy : %s (%s)\n", fileName, strerror(errno));
 				break;
 			}
@@ -584,15 +707,14 @@ Ini::SaveFile(const char* theFileName, bool writeCRC)
 				break;
 			}
 		}
-		//+++
-		SectionList::iterator finalSect = --sects.end();
+		SectionList::iterator finalSect = sects.empty() ? sects.end() : --sects.end();
 		for (SectionList::iterator sect=sects.begin(); sect!=sects.end(); sect++) {
 			if (*sect->key) {
 				fb.push('[');
 				fb.push(sect->key, sect->keyLen);
 				fb.push("]" EOL,1+EOL_LEN);
 			}
-			ItemList::iterator finalItem=--sect->items.end();
+			ItemList::iterator finalItem = sect->items.empty() ? sect->items.end() : --sect->items.end();
 			for (ItemList::iterator item=sect->items.begin(); item!=sect->items.end(); item++) {
 				fb.push(item->key,item->keyLen);
 				fb.push('=');
@@ -605,18 +727,14 @@ Ini::SaveFile(const char* theFileName, bool writeCRC)
 				fb.push(EOL,EOL_LEN);
 			}
 		}
-
 		fb.flush();
-
 		if (fb.err) {
 			LOGE("fwrite contents : %s (%s)\n", fileName, strerror(errno));
 			break;
 		}
-
 		if (!FlushFile(file)) {
 			break;
 		}
-
 		if (writeCRC) {
 			if (fseek(file,sizeof(crcHeaderSig),SEEK_SET)==-1) {
 				LOGE("fseek crcHeaderSig : %s (%s)\n", fileName, strerror(errno));
@@ -624,16 +742,16 @@ Ini::SaveFile(const char* theFileName, bool writeCRC)
 			}
 			int crc32le = fb.getCRC32();
 			int crc32be = htonl(crc32le);
-			if (fwrite(&crc32be,sizeof(crc32be),1,file)<1) {
+			char crc32str[crc32StrSize + 1] = { 0 };
+			BinToHexStr(&crc32be, sizeof(crc32be), crc32str, sizeof(crc32str));
+			if (fwrite(crc32str,crc32StrSize,1,file)<1) {
 				LOGE("fwrite crc : %s (%s)\n", fileName, strerror(errno));
 				break;
 			}
 		}
-
 		if (!FlushFile(file)) {
 			break;
 		}
-
 		result = true;
 	} while(0);
 
@@ -663,12 +781,16 @@ Ini::FromString(const char* buf, size_t buflen, bool sorted)
 	Reset();
 
 	do {
-		const char *sos = NULL; //start of section
 		const char *p = buf;
 		const char *e = buf + buflen;
+		const char *sos = NULL; //start of section
+
+		if (!ValidateFormat(buf, buflen)) {
+			break;
+		}
 
 		while(p<e) {
-			while(p<e && (*p==' ' || *p=='\r' || *p=='\n' || *p=='\t')) {
+			while(p<e && (!*p || *p==' ' || *p=='\r' || *p=='\n' || *p=='\t')) {
 				p++;
 			}
 			if (e <= p) {
@@ -692,12 +814,11 @@ Ini::FromString(const char* buf, size_t buflen, bool sorted)
 					while (*(eos-1) == ' ') {
 						eos--;//remove trail blank
 					}
-					if (eos - sos <= maxSectKeyLen) {
-						*(char*)eos = 0;
-						LOGD("sect='%s'\n", sos);
-					}
-					else {
-						LOGE("Section is too long\n");
+					*(char*)eos = 0;
+					LOGD("sect(%d)='%s'\n", eos - sos, sos);
+					if (remPool < (size_t)(eos - sos)) {
+						LOGE("Not enough room in the strPool to store the section\n");
+						break;
 					}
 				}
 				continue;
@@ -711,63 +832,51 @@ Ini::FromString(const char* buf, size_t buflen, bool sorted)
 			//get key
 			const char *sok = p; //start of key - 160606
 			const char *eok = NULL; //end of key - 160606
-			bool isKey = false;
 			//remove && *p!='[' condition to allow key like 'key[0]' - 160606
 			while(p<e && *p!='=' && *p!='\r' && *p!='\n') {
 				p++;
-				//insure this is the key
-				if (*p=='=') {
-					isKey = true;
-				}
 			}
-			//+++ quit if no key - 160301
-			if (!isKey || p == sok) {
+			if (*p != '=' || p == sok) {
 				LOGE("No key!\n");
-				break;
+				p++;
+				continue;
 			}
-			//+++
 			eok = p; //end of key - 160606
 			while (*(eok - 1) == ' ') {
 				eok--;//remove trail blank
 			}
-			if (maxSectKeyLen < eok-sok) {
-				isKey=false;
-				LOGE("Key is too long\n");
+			*(char*)eok = 0;
+			LOGD("key(%d)='%s'\n", eok - sok, sok);
+			if (remPool < (size_t)(eok - sok)) {
+				LOGE("Not enough room in the strPool to store the key\n");
+				break;
 			}
-			if (isKey) {
-				*(char*)eok=0;
-				LOGD("key='%s'\n", sok);
-				if (p<e) {
-					p++;
-				}
-				while(p<e && *p==' ') {					
-					p++;//remove precede blank
-				}
-				//get value
-				const char *sov = p; //start of value - 160606
-				while(p<e && *p!='\r' && *p!='\n') {
-					p++;
-				}
-				const char *eov = p; //end of value - 160606
-				if (p<e) {
-					p++;
-				}
-				while(*(eov-1)==' ') {
-					eov--;//remove trail blank
-				}
-				if (eov-sov <= maxValLen) {
-					*(char*)eov = 0;
-					LOGD("val='%s'\n",sov);
-
-					if (*sok) { //*Allow empty section - 160530
-						SetValueStr(sos,sok,sov,sorted?true:false); //allow empty value
-					}
-					sok = NULL;
-					sov = NULL;
-				} else {
-					LOGE("Value is too long\n");
-				}
+			if (p<e) {
+				p++;
 			}
+			while (p<e && *p == ' ') {
+				p++;//remove precede blank
+			}
+			//get value
+			const char *sov = p; //start of value - 160606
+			while (p<e && *p != '\r' && *p != '\n') {
+				p++;
+			}
+			const char *eov = p; //end of value - 160606
+			while (*(eov - 1) == ' ') {
+				eov--;//remove trail blank
+			}
+			*(char*)eov = 0;
+			LOGD("val(%d)='%s'\n", eov - sov, sov);
+			if (remPool < (size_t)(eov - sov)) {
+				LOGE("Not enough room in the strPool to store the value\n");
+				break;
+			}
+			else if (sok && *sok) { //*Allow empty section - 160530
+				SetValueStr(sos, sok, sov, sorted ? true : false); //allow empty value
+			}
+			sok = NULL;
+			sov = NULL;
 		}
 		result = true;
 	} while(0);
@@ -778,14 +887,14 @@ string
 Ini::ToString()
 {
 	string str;
-	SectionList::iterator finalSect = --sects.end();	
+	SectionList::iterator finalSect = sects.empty() ? sects.end() : --sects.end();
 	for (SectionList::iterator sect=sects.begin(); sect!=sects.end(); sect++) {
 		if (*sect->key) {
 			str.push_back('[');
 			str.append(sect->key,sect->keyLen);
 			str.append("]" EOL,1+EOL_LEN);
 		}
-		ItemList::iterator finalItem=--sect->items.end();
+		ItemList::iterator finalItem = sect->items.empty() ? sect->items.end() : --sect->items.end();
 		for (ItemList::iterator item=sect->items.begin(); item!=sect->items.end(); item++) {
 			str.append(item->key,item->keyLen);
 			str.push_back('=');
@@ -801,7 +910,6 @@ Ini::ToString()
 	return str;
 }
 
-//+huirak.lee 150517
 int
 Ini::GetItemCount() 
 {
@@ -901,7 +1009,6 @@ Ini::FindFirstKey(const char* sect, const char** key, const char** val)
 	lastFoundItemFFK = foundSect->items.begin();
 	*key = lastFoundItemFFK->key;
 	*val = lastFoundItemFFK->val;
-	lastFoundItemFFK++;	
 	return (int)foundSect->items.size();
 }
 
@@ -914,12 +1021,16 @@ Ini::FindNextKey(const char** key, const char** val)
 	if (lastFoundSectionFFK == sects.end()) {
 		return 0;
 	}
-	if (lastFoundItemFFK == lastFoundSectionFFK->items.end()) {
+	if (lastFoundItemFFK == lastFoundSectionFFK->items.end()) {	
+		LOGD("%s End of item (1)\n", __FUNCTION__);
+		return 0;
+	}
+	if (++lastFoundItemFFK == lastFoundSectionFFK->items.end()) {
+		LOGD("%s End of item (2)\n", __FUNCTION__);
 		return 0;
 	}
 	*key = lastFoundItemFFK->key;
 	*val = lastFoundItemFFK->val;
-	lastFoundItemFFK++;
 	return 1;
 }
 
@@ -1055,7 +1166,7 @@ Ini::GetValueDouble(const char* sect, const char* key, double _default/*=0.0*/)
 char*
 Ini::ByteArrayToHexString(const unsigned char* byteArray, size_t sizeByteArray)
 {
-	//00 FE FF ...
+	//00 AB CD ...
 	char* s=(char*)malloc(3*sizeByteArray); //Last blank for the null character.
 	if (s==NULL) {
 		return NULL;
@@ -1353,7 +1464,11 @@ Ini::SetValueInt(const char* sect, const char* key, int val)
 	//32bit machine: -2147483648 ~ 2147483647
 	//TBD: fit max int width in the 64bit machine?	
 	char buf[100];
+#if defined (WIN32) && !defined(__CYGWIN__)
 	itoa(val, buf, 10);
+#else
+	snprintf(buf,sizeof(buf),"%d",val);
+#endif
 	SetValueStr(sect,key,buf);
 }
 
@@ -1362,7 +1477,11 @@ Ini::SetValueUInt(const char* sect, const char* key, unsigned int val)
 {
 	//TBD: fit max unsigned int width in the 64bit machine?	
 	char buf[100];
-	ultoa(val, buf, 10);
+#ifdef ultoa
+	ultoa(val,buf,10);
+#else	
+	snprintf(buf,sizeof(buf),"%u",val);
+#endif
 	SetValueStr(sect,key,buf);
 }
 
@@ -1372,7 +1491,11 @@ Ini::SetValueLong(const char* sect, const char* key, long val)
 	//long l = -2147483648;//mingw32-gcc: ../ini.cpp:1581:2: error: this decimal constant is unsigned only in ISO C90 [-Werror]	
 	//TBD: fit buffer size to max value width
 	char buf[100];
+#if defined (WIN32)
 	ltoa(val, buf, 10);
+#else
+	snprintf(buf,sizeof(buf),"%ld",val);
+#endif
 	SetValueStr(sect,key,buf);
 }
 
@@ -1381,7 +1504,11 @@ Ini::SetValueULong(const char* sect, const char* key, unsigned long val)
 {
 	//32bit machine: 4,294,967,295
 	char buf[100];
+#ifdef ultoa
 	ultoa(val, buf, 10);
+#else
+	snprintf(buf,sizeof(buf),"%lu",val);
+#endif
 	SetValueStr(sect,key,buf);
 }
 
@@ -1393,7 +1520,7 @@ Ini::SetValueLongLong(const char* sect, const char* key, long long val)
 	//long long ll = -9223372036854775808; //mingw32-gcc: ../ini.cpp:1610:18: error: integer constant is so large that it is unsigned [-Werror]
 	//TBD: fit buffer size to max value width
 	char buf[sizeof("-9223372036854775808")];
-#if defined (WIN32) && !defined(__MINGW32__)
+#if (defined (WIN32) && !defined(__MINGW32__)) || defined(__CYGWIN__)
 	snprintf(buf, sizeof(buf), "%lld", val);
 #else
 	lltoa(val, buf, 10);
@@ -1409,7 +1536,7 @@ Ini::SetValueULongLong(const char* sect, const char* key, unsigned long long val
 	//unsigned long long ull = 18446744073709551615;//mingw32-gcc: ../ini.cpp:1617:27: error: integer constant is so large that it is unsigned [-Werror]	
 	//TBD: fit buffer size to max value width
 	char buf[sizeof("18446744073709551615")];
-#if defined (WIN32) && !defined(__MINGW32__)
+#if (defined (WIN32) && !defined(__MINGW32__)) || defined(__CYGWIN__)
 	snprintf(buf, sizeof(buf), "%llu", val);
 #else
 	ulltoa(val, buf, 10);

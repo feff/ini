@@ -2,25 +2,30 @@
  INI File Processor.
  Optimized INI text file processor for the embedded c++ system.
  Written by Huirak Lee (huirak.lee@gmail.com)
- Version 5.5.0, 2016/6/6
+ Version 5.9.0, 2016/6/19
 
  Official Repository.
  https://bitbucket.org/mobileoff/ini
+
+ Introduction.
+ This toolkit was designed to achieve the best performance, and provide the convenience for managing standard INI file.
+ Not only best for the embedded operating system, but also good for the non embedded system.
 
  Copyright (C) Huirak Lee. All rights reserved.
  The copyright of this toolkit is guaranteed in accordance with the international copyright law.
 
  For the Personal or Educational or Open Source Project Use.
- You may use this whole program, or part of the codes, for the personal purpose or the educational purpose also Open Source Projects under the following restrictions:
+ You may use this whole program, or part of the codes, for the personal purpose or the educational purpose also open source projects under the following restrictions:
  This toolkit may be redistributed while keeping untouched whole codes and program informations, original author name, license agreement and revision history. Modified codes shall not be redistributed.
  Any modified or derived source codes will descend this license policy and the copyright, so it's ownership belongs to the original author.
  If you found bugs or any improvement idea, let the original author know that to enhance the code quality and to fix possible bugs.
 
  For the Commercial Use.
  Contact the original author if you want to use this toolkit under the commercial purpose.
- Even if you are using this toolkit that belongs to some open source projects used in commercial applications subject to commercial licensing rules.
+ Even if you are using this toolkit that belongs to some open source projects used in commercial applications, it is subjected to the commercial licensing rules.
 
  Revision History.
+ v5.9.0, 160619, huirak.lee, Unlimit sect, key, and value length. Enhance GetTimeStamp performance. Add ValidateFormat to validate character set and basic INI formatting. Change CRC value format into string. Cygwin ports. FromString stops parsing when the string pool is out of space. Fix fopen read option of the ValidateFile. Fix app crash while saving empty INI file. Fix first timestamp not updated in case of the time element is 0.
  v5.5.0, 160606, huirak.lee, Faster parsing speed for FromString, but source string will be touched. Remove dynamic allocation of sect, key, value in FromString. Process dirty format ini. Add CreateNewItem. Reorder protected member variables and functions. Virtualize destructor ~Ini.
  v5.4.0, 160605, huirak.lee, Port to Visual Studio 2015, WIN32 platform. Ini now have two license type: free and commercial. Separate test codes to the test-ini.cpp. EOL character will be automatically selected to the compiler platform. Embed logging function to the Ini class.
  v5.3.5, 160604, huirak.lee, Fix Stopwatch time miscalculated in the MINGW compiler.
@@ -86,10 +91,21 @@
 #include <vector>
 #include <string>
 
+#define LOG_PREFIX "[ini]%s "
+
+#define LOGD(fmt,...) Ini::Dprintf(Ini::Debug, LOG_PREFIX fmt, Ini::GetTimeStamp(), ##__VA_ARGS__)
+#define LOGV(fmt,...) Ini::Dprintf(Ini::Verbose, LOG_PREFIX fmt, Ini::GetTimeStamp(), ##__VA_ARGS__)
+#define LOGN(fmt,...) Ini::Dprintf(Ini::Normal, LOG_PREFIX fmt, Ini::GetTimeStamp(), ##__VA_ARGS__)
+#define LOGE(fmt,...) Ini::Dprintf(Ini::Error, LOG_PREFIX fmt, Ini::GetTimeStamp(), ##__VA_ARGS__)
+
+#ifdef NDEBUG
+#undef LOGD
+#define LOGD(fmt,...) ((void)0)
+#endif
+
 inline int StringNoCaseCompare(const char* sz1, const char* sz2, int maxlen) {
 #if defined(WIN32)
 	//error C4996: 'strnicmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _strnicmp. See online help for details.
-	//return strnicmp(sz1, sz2, maxlen);
 	return _strnicmp(sz1, sz2, maxlen);
 #else
 	return strncasecmp(sz1, sz2, maxlen);
@@ -101,7 +117,6 @@ class Ini
 public:
 	//Don't looks good, but seems no better way out.
 	static const int maxSectKeyLen = 256;
-	static const int maxValLen = 128*1024;
 protected:
 	struct Item
 	{
@@ -172,6 +187,7 @@ protected:
 
 	char* strPool;
 	size_t sizPool;
+	size_t remPool; //remaining pool size
 	unsigned int posPool;
 
 	char iniFileName[256];	
@@ -190,12 +206,14 @@ public:
 	void SetFileName(const char* iniFileName);
 	const char* GetFileName();
 	bool FromString(const char* buf, size_t buflen, bool sorted=false);
-	std::string ToString();	
+	std::string ToString();
 	void Reset();
 	static bool ValidateFile(const char* iniFileName);
+	static bool ValidateFormat(const char* buf, size_t buflen);
 	// Property
-	inline int GetSectCount() {return sects.size();} //+huirak.lee 150517
-	int GetItemCount();	//+huirak.lee 150517
+	inline int GetSectCount() {return sects.size();}
+	int GetItemCount();
+	size_t GetPoolRoom();
 	// Search Functions
 	bool IsSection(const char* sect);
 	bool IsKey(const char* sect, const char* key);
@@ -271,17 +289,5 @@ public:
 	static void SetLogLevel(int level) {logLevel = level;}
 	static int GetLogLevel() {return logLevel;}
 	static void Dprintf(int level, const char* fmt, ...);
-	static std::string GetTimeStamp();
+	static const char* GetTimeStamp();
 };
-
-#define LOG_PREFIX "[ini]%s "
-
-#define LOGD(fmt,...) Ini::Dprintf(Ini::Debug, LOG_PREFIX fmt, Ini::GetTimeStamp().c_str(), ##__VA_ARGS__)
-#define LOGV(fmt,...) Ini::Dprintf(Ini::Verbose, LOG_PREFIX fmt, Ini::GetTimeStamp().c_str(), ##__VA_ARGS__)
-#define LOGN(fmt,...) Ini::Dprintf(Ini::Normal, LOG_PREFIX fmt, Ini::GetTimeStamp().c_str(), ##__VA_ARGS__)
-#define LOGE(fmt,...) Ini::Dprintf(Ini::Error, LOG_PREFIX fmt, Ini::GetTimeStamp().c_str(), ##__VA_ARGS__)
-
-#ifdef NDEBUG
-	#undef LOGD
-	#define LOGD(fmt,...) ((void)0)
-#endif

@@ -11,7 +11,7 @@
 #else
 #include <time.h>
 #endif
-
+#include <errno.h>
 #include "ini.h"
 
 //mode=0 stop
@@ -118,8 +118,8 @@ void TestBenchmarks()
 {
 	LOGN( "<<%s>>\n",__FUNCTION__);
 
-	Ini ini(2*1024*1024);
 	Ini::SetLogLevel(Ini::Normal);
+	Ini ini(2*1024*1024);
 
 	CreateTestSet(ini,100,1000);
 
@@ -140,8 +140,8 @@ void TestLoadFile()
 {
 	LOGN( "<<%s>>\n",__FUNCTION__);
 
-	Ini ini(2*1024*1024);
 	Ini::SetLogLevel(Ini::Normal);
+	Ini ini(2*1024*1024);
 
 	const char* path="test-benchmarks.ini";	
 	ini.LoadFile(path);	
@@ -151,8 +151,8 @@ void TestLoadFileWithWrongFile()
 {
 	LOGN( "<<%s>>\n",__FUNCTION__);
 
-	Ini ini(2*1024*1024);
 	Ini::SetLogLevel(Ini::Debug);
+	Ini ini(512);
 
 	const char* path="test-ini.exe";		
 	ini.LoadFile(path);	
@@ -218,6 +218,10 @@ void TestFindFunctions()
 			LOGN("FindNextKey %s=%s\n",key,val);
 		} 
 	}
+
+	ini.FindNextKey(&key,&val);
+	ini.FindNextKey(&key,&val);
+	ini.FindNextKey(&key,&val);
 }
 
 void TestSetValueFunctions()
@@ -351,6 +355,7 @@ void TestDirtyIni()
 		"; key2 =  val2\n"
 		"    #key3 = val3\n"
 		" key4 = val4   #remarks\n"
+		"    = val4   #no key!\n"
 	};
 	LOGN("<<%s>>\n", __FUNCTION__);
 
@@ -361,8 +366,27 @@ void TestDirtyIni()
 	ini.LoadFile("test-dirty.ini");
 }
 
+void TestGetTimeStampBenchmark()
+{
+	//Intel i7-3770, CYGWIN, -fstack-protector-all
+	//  snprintf takes 0.583 secs
+	//  hardcode takes 0.079 secs
+	//Intel i7-3770, MINGW, -fstack-protector-all
+	//  snprintf takes 0.084 secs
+	//  hardcode takes 0.083 secs
+	//Intel i7-3770, VS2015
+	//  snprintf takes 0.076 secs
+	//  hardcode takes 0.083 secs
+	Stopwatch(1,"GetTimeStamp");
+	for(int i=0; i<1000000; i++) {
+		Ini::GetTimeStamp();
+	}
+	Stopwatch(0,"GetTimeStamp");
+}
+
 int main()
 {
+	TestGetTimeStampBenchmark();
 	TestBenchmarks();
 	TestLoadFile();
 	TestLoadFileWithWrongFile();
