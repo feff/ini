@@ -2,7 +2,7 @@
  INI File Processor.
  Optimized INI text file processor for the embedded c++ system.
  Written by Huirak Lee (huirak.lee@gmail.com)
- Version 5.9.0, 2016/6/19
+ Version 6.0.0, 2016/7/7
 
  Official Repository.
  https://bitbucket.org/mobileoff/ini
@@ -25,6 +25,7 @@
  Even if you are using this toolkit that belongs to some open source projects used in commercial applications, it is subjected to the commercial licensing rules.
 
  Revision History.
+ v6.0.0, 160707, huirak.lee, Realloc the string pool when it is out of space. Abort loading file if there is no CRC checksum in spite of the checkCRC is true. Fix valLen update missing bug. Add GetSectItemCount to get item count of specified section.
  v5.9.0, 160619, huirak.lee, Unlimit sect, key, and value length. Enhance GetTimeStamp performance. Add ValidateFormat to validate character set and basic INI formatting. Change CRC value format into string. Cygwin ports. FromString stops parsing when the string pool is out of space. Fix fopen read option of the ValidateFile. Fix app crash while saving empty INI file. Fix first timestamp not updated in case of the time element is 0.
  v5.5.0, 160606, huirak.lee, Faster parsing speed for FromString, but source string will be touched. Remove dynamic allocation of sect, key, value in FromString. Process dirty format ini. Add CreateNewItem. Reorder protected member variables and functions. Virtualize destructor ~Ini.
  v5.4.0, 160605, huirak.lee, Port to Visual Studio 2015, WIN32 platform. Ini now have two license type: free and commercial. Separate test codes to the test-ini.cpp. EOL character will be automatically selected to the compiler platform. Embed logging function to the Ini class.
@@ -104,6 +105,12 @@
 #endif
 
 inline int StringNoCaseCompare(const char* sz1, const char* sz2, int maxlen) {
+#if !defined(NDEBUG)
+	if (sz1 == NULL || sz2 == NULL) {
+		printf("SHOULD NOT FALLING HERE!\n");
+		return 1;
+	}
+#endif
 #if defined(WIN32)
 	//error C4996: 'strnicmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _strnicmp. See online help for details.
 	return _strnicmp(sz1, sz2, maxlen);
@@ -213,6 +220,7 @@ public:
 	// Property
 	inline int GetSectCount() {return sects.size();}
 	int GetItemCount();
+	int GetSectItemCount(const char* sect);
 	size_t GetPoolRoom();
 	// Search Functions
 	bool IsSection(const char* sect);

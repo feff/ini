@@ -2,7 +2,7 @@
  INI File Processor.
  Optimized INI text file processor for the embedded c++ system.
  Written by Huirak Lee (huirak.lee@gmail.com)
- Version 5.9.0, 2016/6/19
+ Version 6.0.0, 2016/7/7
 
  Official Repository.
  https://bitbucket.org/mobileoff/ini
@@ -25,6 +25,7 @@
  Even if you are using this toolkit that belongs to some open source projects used in commercial applications, it is subjected to the commercial licensing rules.
 
  Revision History.
+ v6.0.0, 160707, huirak.lee, Realloc the string pool when it is out of space. Abort loading file if there is no CRC checksum in spite of the checkCRC is true. Fix valLen update missing bug. Add GetSectItemCount to get item count of specified section.
  v5.9.0, 160619, huirak.lee, Unlimit sect, key, and value length. Enhance GetTimeStamp performance. Add ValidateFormat to validate character set and basic INI formatting. Change CRC value format into string. Cygwin ports. FromString stops parsing when the string pool is out of space. Fix fopen read option of the ValidateFile. Fix app crash while saving empty INI file. Fix first timestamp not updated in case of the time element is 0.
  v5.5.0, 160606, huirak.lee, Faster parsing speed for FromString, but source string will be touched. Remove dynamic allocation of sect, key, value in FromString. Process dirty format ini. Add CreateNewItem. Reorder protected member variables and functions. Virtualize destructor ~Ini.
  v5.4.0, 160605, huirak.lee, Port to Visual Studio 2015, WIN32 platform. Ini now have two license type: free and commercial. Separate test codes to the test-ini.cpp. EOL character will be automatically selected to the compiler platform. Embed logging function to the Ini class.
@@ -73,11 +74,13 @@
  * N/A
 
  To Do.
+ * Hash sections and keys and reuse it if new one is already in the string pool.
  * Support inline remarks feature. #like this.
  * error C4996: '__sys_errlist': This function or variable may be unsafe. Consider using strerror instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
  * Fix -effc++ option error.
 
  TBD.
+ * Lightweight mode : Don't allocate the memory for all contents, just index the ini file contents and search it. 
  * Detect contents changes so that not save the unchanged contents again.
  * Realloc strPool when it is out of space.
  * Set debug function of the caller.
@@ -466,7 +469,7 @@ public:
 	}
 };
 
-Ini::Ini(const int strpoolsize/*=256*1024*/)
+Ini::Ini(const int strpoolsize/*=64*1024*/)
 {
 	LOGD("%s, poolsize=%d\n", __FUNCTION__, strpoolsize);
 	iniFileName[0] = 0;
@@ -503,14 +506,39 @@ Ini::Reset()
 	remPool = sizPool;
 }
 
-//TBD: Reallocate strPool when it is out of space.
+// Reallocate strPool when it is out of space.
 const char* 
 Ini::PushString(const char* s) 
 {
 	size_t room = strlen(s) + 1;
 	if (sizPool < posPool + room) {
-		LOGE("Can't push the string to pool : string pool is full\n");
-		return NULL;
+		size_t grow = room + (size_t)(sizPool*0.05);
+		LOGD("String pool is full. Reallocate the string pool. (+%d)\n", grow);
+		char* newPool = (char*)realloc(strPool, sizPool + grow);
+		if (newPool == NULL) {
+			LOGE("Can't push the string to pool : reallocate fail! (%s)\n", strerror(errno));
+			return 0;
+		}
+		LOGD("String pool reallocated : %x -> %x (size=%d)\n", strPool, newPool, sizPool + grow);
+		if (newPool != strPool) {
+			int offset = newPool - strPool;
+			for (SectionList::iterator sect = sects.begin(); sect != sects.end(); sect++) {
+				if (sect->key) {
+					sect->key += offset;
+				}
+				for (ItemList::iterator item = sect->items.begin(); item != sect->items.end(); item++) {
+					if (item->key) {
+						item->key += offset;
+					}
+					if (item->val) {
+						item->val += offset;
+					}
+				}
+			}
+		}
+		strPool = newPool;
+		sizPool += grow;
+		remPool += grow;
 	}
 	memcpy(strPool + posPool, s, room);
 	posPool += room;
@@ -584,6 +612,11 @@ Ini::LoadFile(const char* theFileName, bool checkCRC)
 					break;
 				}
 			}
+		} 
+		
+		if (!haveCRC && checkCRC) {
+			LOGE("No CRC checksum! : %s\n", theFileName);
+			break;
 		}
 
 		Reset();
@@ -920,6 +953,16 @@ Ini::GetItemCount()
 	return itemCount;
 }
 
+int 
+Ini::GetSectItemCount(const char* sect)
+{
+	SectionList::iterator foundSect = FindSection(sect);
+	if (foundSect != sects.end()) {
+		return foundSect->items.size();
+	}
+	return 0;
+}
+
 Ini::SectionList::iterator
 Ini::FindSection(const char* sect)
 {
@@ -1253,6 +1296,7 @@ Ini::SetValueRaw(const char* sect, const char* key, const void* byteArray, const
 	if (hexString!=NULL) {
 		SetValueStr(sect, key, hexString);
 		free(hexString);
+		hexString = NULL;
 	}
 }
 
@@ -1266,11 +1310,13 @@ Ini::SetValueStrBuf(const char* sect, const char* key, char* buf, size_t bufSize
 	snprintf(dupString,bufSize,"%s",buf);
 	SetValueStr(sect,key,dupString);
 	free(dupString);
+	dupString = NULL;
 }
 
 void
 Ini::CreateNewItem(Item& newItem, const char* key, const char* val) 
 {
+	LOGD("Create item : '%s'='%s'\n", key, val);
 	newItem.key = PushString(key);
 	newItem.keyLen = strlen(key);
 	newItem.val = PushString(val);
@@ -1289,25 +1335,28 @@ Ini::SetValueStr(const char* sect, const char* key, const char* val, bool sorted
 	}
 
 	int valRoom = strlen(val)+1;
+
 	if (sortedFile) {
 		if (lastParsedSection==sects.end() || StringNoCaseCompare(lastParsedSection->key, sect, maxSectKeyLen)) {
 			LOGD("Create section : '%s'\n", sect);
 
 			Section newSect;
-			newSect.key = PushString(sect);
-			newSect.keyLen = strlen(sect);
-
 			Item newItem;
-			CreateNewItem(newItem,key,val);
 			newSect.items.push_back(newItem);
 			sects.push_back(newSect);
+
+			sects.back().key = PushString(sect);
+			sects.back().keyLen = strlen(sect);
+
+			CreateNewItem(sects.back().items.back(),key,val);
 
 			lastParsedSection = --sects.end();
 			return;
 		} else {
 			Item newItem;
-			CreateNewItem(newItem,key,val);
 			lastParsedSection->items.push_back(newItem);
+
+			CreateNewItem(lastParsedSection->items.back(),key,val);
 			return;
 		}
 	}
@@ -1318,54 +1367,48 @@ Ini::SetValueStr(const char* sect, const char* key, const char* val, bool sorted
 		LOGD("Create section : '%s'\n", sect);
 
 		Section newSect;
-		newSect.key = PushString(sect);
-		newSect.keyLen = strlen(sect);
-		
-		LOGD("Create item : '%s'='%s'\n", key, val);
-
 		Item newItem;
-		CreateNewItem(newItem,key,val);
 		newSect.items.push_back(newItem);
-
 		sects.push_back(newSect);
+
+		sects.back().key = PushString(sect);
+		sects.back().keyLen = strlen(sect);
+		
+		CreateNewItem(sects.back().items.back(),key,val);
 	} else {
 		if (StringNoCaseCompare(foundSect->key, sect, maxSectKeyLen)) {
-			LOGD("Create section : '%s'\n", sect);
+			LOGD("Insert section : '%s'\n", sect);
 
 			Section newSect;
-			newSect.key = PushString(sect);
-			newSect.keyLen = strlen(sect);
-			
-			LOGD("Create item : '%s'='%s'\n", key, val);
-
 			Item newItem;
-			CreateNewItem(newItem,key,val);
 			newSect.items.push_back(newItem);
+			SectionList::iterator insSect = sects.insert(foundSect, newSect);
 
-			sects.insert(foundSect, newSect);
+			insSect->key = PushString(sect);
+			insSect->keyLen = strlen(sect);			
+			
+			CreateNewItem(insSect->items.back(),key,val);
 		} else {
-			LOGD("Section exist : '%s'\n",foundSect->key);
+			LOGD("Update section : '%s'\n",foundSect->key);
 
 			ItemList::iterator foundItem = lower_bound(foundSect->items.begin(), foundSect->items.end(), key, Item::Compare);
 
 			if (foundItem==foundSect->items.end()) {
-				LOGD("Create item : '%s'='%s'\n", key, val);
-
 				Item newItem;
-				CreateNewItem(newItem,key,val);
 				foundSect->items.push_back(newItem);
+				CreateNewItem(foundSect->items.back(),key,val);
 			} else {
 				if (StringNoCaseCompare(foundItem->key, key, maxSectKeyLen)) {
-					LOGD("Create item : '%s'='%s'\n", key, val);
-
 					Item newItem;
-					CreateNewItem(newItem,key,val);
-					foundSect->items.insert(foundItem,newItem);
+					ItemList::iterator newItemPos = foundSect->items.insert(foundItem, newItem);
+
+					CreateNewItem(*newItemPos,key,val);
 				} else {
-					LOGD("Item exist : '%s'='%s'\n", key, val);
+					LOGD("Update item : '%s'='%s'\n", key, val);
 
 					if ( valRoom <= foundItem->valRoom ) {
 						memcpy((void*)foundItem->val,val,valRoom);
+						foundItem->valLen = strlen(val);
 					} else {
 						foundItem->val = PushString(val);
 						foundItem->valLen = strlen(val);
@@ -1377,84 +1420,11 @@ Ini::SetValueStr(const char* sect, const char* key, const char* val, bool sorted
 	}
 }
 
-/*TBD:
+/*
 void
 Ini::SetValueStrMulti(const char* sect, const char* key, const char* val)
 {
-	if (!sect||!key||!val) return;
-	SectionList::iterator sect = lower_bound(sects.begin(), sects.end(),
-		sect, Section::Compare);
-	if (sect==sects.end()) {
-		LOGD("Create section : %s\n", sect);
-
-		Section newSect;
-		snprintf(newSect.key,maxSectKeyLen,"%s",sect);
-
-		LOGD("Create item : %s=%s\n", key, val);
-
-		Item newItem;
-		snprintf(i.key,maxSectKeyLen,"%s",key);
-		i.val = val;
-
-		newSect.items.push_back(i);
-
-		sects.push_back(newSect);
-	} else {
-		if (StringNoCaseCompare(sect->key,sect,maxSectKeyLen)) {
-			LOGD("Create section : %s\n", sect);
-
-			Section newSect;
-			snprintf(newSect.key,maxSectKeyLen,"%s",sect);
-
-			LOGD("Create item : %s=%s\n", key, val);
-
-			Item i;
-			snprintf(i.key,maxSectKeyLen,"%s",key);
-			i.val = val;
-
-			newSect.items.push_back(i);
-
-			sects.insert(sect, newSect);
-		} else {
-			LOGD("Section exist : %s\n",sect->key);
-
-			ItemList::iterator it = lower_bound(sect->items.begin(), sect->items.end(),
-					key, Item::Compare);
-			if (it==sect->items.end()) {
-				LOGD("Create item : %s=%s\n", key, val);
-
-				Item i;
-
-				snprintf(i.key,maxSectKeyLen,"%s",key);
-				i.val = val;
-
-				sect->items.push_back(i);
-			} else {
-				if (StringNoCaseCompare(it->key, key, maxSectKeyLen)) {
-					LOGD("Create item : %s=%s\n", key, val);
-
-					Item i;
-
-					snprintf(i.key,maxSectKeyLen,"%s",key);
-					i.val = val;
-
-					sect->items.insert(it,i);
-				} else {
-					LOGD("Item exist : %s=%s\n", key, val);
-
-					//TBD..
-					//it->val = val;
-
-					Item i;
-
-					snprintf(i.key,maxSectKeyLen,"%s",key);
-					i.val = val;
-
-					sect->items.insert(it,i);
-				}
-			}
-		}
-	}
+	//TBD
 }
 */
 

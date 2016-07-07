@@ -384,8 +384,19 @@ void TestGetTimeStampBenchmark()
 	Stopwatch(0,"GetTimeStamp");
 }
 
-int main()
+void TestReallocStrPool()
 {
+	LOGN("<<%s>>\n", __FUNCTION__);
+
+	Ini ini;
+	Ini::SetLogLevel(Ini::Debug);
+	CreateTestSet(ini, 100, 1000);
+	ini.SaveFile("test-realloc.ini");
+}
+
+int main()
+ {
+	TestReallocStrPool();
 	TestGetTimeStampBenchmark();
 	TestBenchmarks();
 	TestLoadFile();
