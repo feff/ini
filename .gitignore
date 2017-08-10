@@ -1,4 +1,16 @@
 *.bak
+*.db
 *.exe
 *.ini
+*.iobj
+*.ipch
+*.ipdb
+*.log
 *.o
+*.obj
+*.opendb
+*.pch
+*.pdb
+*.suo
+*.tlog
+*.user

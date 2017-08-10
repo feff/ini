@@ -2,13 +2,13 @@
  INI File Processor.
  Optimized INI text file processor for the embedded c++ system.
  Written by Huirak Lee (huirak.lee@gmail.com)
- Version 6.0.0, 2016/7/7
+ Version 6.0.1, 2017-8-10
 
  Official Repository.
  https://bitbucket.org/mobileoff/ini
 
  Introduction.
- This toolkit was designed to achieve the best performance, and provide the convenience for managing standard INI file.
+ This toolkit was designed to achieve the best performance, and provide the convenience for managing the standard INI file.
  Not only best for the embedded operating system, but also good for the non embedded system.
 
  Copyright (C) Huirak Lee. All rights reserved.
@@ -23,64 +23,64 @@
  For the Commercial Use.
  Contact the original author if you want to use this toolkit under the commercial purpose.
  Even if you are using this toolkit that belongs to some open source projects used in commercial applications, it is subjected to the commercial licensing rules.
-
- Revision History.
- v6.0.0, 160707, huirak.lee, Realloc the string pool when it is out of space. Abort loading file if there is no CRC checksum in spite of the checkCRC is true. Fix valLen update missing bug. Add GetSectItemCount to get item count of specified section.
- v5.9.0, 160619, huirak.lee, Unlimit sect, key, and value length. Enhance GetTimeStamp performance. Add ValidateFormat to validate character set and basic INI formatting. Change CRC value format into string. Cygwin ports. FromString stops parsing when the string pool is out of space. Fix fopen read option of the ValidateFile. Fix app crash while saving empty INI file. Fix first timestamp not updated in case of the time element is 0.
- v5.5.0, 160606, huirak.lee, Faster parsing speed for FromString, but source string will be touched. Remove dynamic allocation of sect, key, value in FromString. Process dirty format ini. Add CreateNewItem. Reorder protected member variables and functions. Virtualize destructor ~Ini.
- v5.4.0, 160605, huirak.lee, Port to Visual Studio 2015, WIN32 platform. Ini now have two license type: free and commercial. Separate test codes to the test-ini.cpp. EOL character will be automatically selected to the compiler platform. Embed logging function to the Ini class.
- v5.3.5, 160604, huirak.lee, Fix Stopwatch time miscalculated in the MINGW compiler.
- v5.3.4, 160603, huirak.lee, Fix 'unsigned long' GetValueLong to 'long'. Add NDEBUG option for the release build recipe.
- v5.3.3, 160602, huirak.lee, Fix FromString return value unchecked in the LoadFile.
- v5.3.2, 160601, huirak.lee, ValidateFile() logs 'No CRC checksum' error.
- v5.3.1, 160601, huirak.lee, Add StringNoCaseCompare for easily changing the string compare function.
- v5.3.0, 160601, huirak.lee, Add FromString(), ToString() to serialize from / to string.
- v5.2.0, 160601, huirak.lee, Add [ini] prefix and current time stamp to the logs. Add short log definitions. Rename d_printf with ini_dprintf. Add GetLogLevel fcuntion.
- v5.1.0, 160601, huirak.lee, New GetValue & SetValue functions for the huge integer & floating types: long long, unsigned long long, long double.
- v5.0.0, 160531, huirak.lee, Move CRC header in front of the file. Allow empty section. Remove strict INI header checking. Allow '#' to describe remark. Quit LoadFile when there is no key to avoid crash. Enforce test functions. Refactor variable name, etc.
- v4.3.4, 160517, huirak.lee, TRACE has renamed d_printf. 
- v4.3.3, 160517, huirak.lee, Port to MINGW32.
- v4.3.2, 160421, huirak.lee, Define EOL character for the cross platform.
- v4.3.1, 160418, huirak.lee, Change long to unsigned int of the CRC table, Fix warnings under -Wall compile option.
- v4.3.0, 160301, huirak.lee, Fix CRC checking pass hole. Fix potential eternal parse loop in case of there is no CRC.
- v4.2.2, 151028, jungjun.lee, Fix 'Time of check time of use' issue.
- v4.2.1, 150407, huirak.lee, Remove warning: variable 'footerSize' set but not used [-Wunused-but-set-variable]
- v4.2.0, 141126, huirak.lee, Add CheckFileIntegrity function to verify broken file after writing a file.
- v4.1.0, 130625, huirak.lee, Add length field on each key, value due to SaveFile function crash
- v4.0.0, 130518, huirak.lee, Employ string pool. faster parsing(insertion) speed for the sorted file.
- v3.0.0, 130513, huirak.lee, Change STL map to vector and binary search due to SIGSEGV in QNX platform
- v2.5.0, 130208, huirak.lee, Improve buffer overrun safty with parsing, string compare. add debug function. easy set debug level.
- v2.4.0, 130206, huirak.lee, GetValueBuf, SetValueBuf added for easy buf handling
- v2.3.0, 121126, huirak.lee, Optimize for faster reading & writing
- v2.2.0, 121126, huirak.lee, Add key insurance check logic
- v2.1.0, 121125, huirak.lee, Add footer for crc checking
- v2.1.0, 121114, huirak.lee, Add SetValueStrBuf for buffer overrun safety
- v2.0.0, 121114, huirak.lee, Add polymorphic functions of GetValue, SetValue
- v1.9.0, 121112, huirak.lee, Add ByteArrayToHexString, HexStringToByteArray
- v1.8.1, 120807, huirak.lee, Fix first item omit bug
- v1.8.0, 120807, huirak.lee, Add SetValue
- v1.7.0, 120707, huirak.lee, Add GetValueRaw,SetValueRaw
- v1.6.1, 120707, huirak.lee, Rename GetValueDword as GetValueUInt, SetValue also
- v1.6.0, 120320, huirak.lee, Port to QNX 6.3.0
- v1.5.1, 100310, huirak.lee, Refactor FindFirstKey, FindNextKey
- v1.5.0, 100222, huirak.lee, Support default value
- v1.4.0, 091117, huirak.lee, Optimized
- v1.3.0, 091112, huirak.lee, Optimized
- v1.2.0, 091111, huirak.lee, Port to Visual Studio 2005
- v1.1.0, 071227, huirak.lee, Port to Embedded Visual C++ 4.0, STL
- v1.0.0, 060502, huirak.lee, Created
  
+ Revision History.
+ v6.0.1, 2017-08-10, huirak.lee, Corrected FlushFile so that use both fflush and fsync. Not save file if the contents unchanged. Fixed bug unable to reallocate string pool during the file loading. Enforced error handling while open a file and creating new item.
+ v6.0.0, 2016-07-07, huirak.lee, Reallocating the string pool when it is out of space. Aborting loading file if there is no CRC checksum in spite of the checkCRC is true. Fixed valLen update missing bug. Added GetSectItemCount to get item count of specified section.
+ v5.9.0, 2016-06-19, huirak.lee, Unlimited sect, key, and value length. Enhanced GetTimeStamp performance. Added ValidateFormat to validate character set and basic INI formatting. Changed CRC value format into string. Cygwin ports. FromString stops parsing when the string pool is out of space. Fixed fopen read option of the ValidateFile. Fixed app crash while saving empty INI file. Fixed first timestamp not updated in case of the time element is 0.
+ v5.5.0, 2016-06-06, huirak.lee, Faster parsing speed for FromString, but source string will be touched. Removed dynamic allocation of sect, key, value in FromString. Processing dirty format ini. Added CreateNewItem. Reordering protected member variables and functions. Virtualized destructor ~Ini.
+ v5.4.0, 2016-06-05, huirak.lee, Ported to Visual Studio 2015, WIN32 platform. Ini now have two license type: free and commercial. Separate test codes to the test-ini.cpp. EOL character will be automatically selected to the compiler platform. Logging function embeded to the Ini class.
+ v5.3.5, 2016-06-04, huirak.lee, Fixed Stopwatch time miscalculated in the MINGW compiler.
+ v5.3.4, 2016-06-03, huirak.lee, Fixed 'unsigned long' GetValueLong to 'long'. Add NDEBUG option for the release build recipe.
+ v5.3.3, 2016-06-02, huirak.lee, Fixed FromString return value unchecked in the LoadFile.
+ v5.3.2, 2016-06-01, huirak.lee, ValidateFile() logs 'No CRC checksum' error.
+ v5.3.1, 2016-06-01, huirak.lee, Added StringNoCaseCompare for easily changing the string compare function.
+ v5.3.0, 2016-06-01, huirak.lee, Added FromString(), ToString() to serialize from / to string.
+ v5.2.0, 2016-06-01, huirak.lee, Added [ini] prefix and current time stamp to the logs. Added short log definitions. Renamed d_printf with ini_dprintf. Added GetLogLevel fcuntion.
+ v5.1.0, 2016-06-01, huirak.lee, New GetValue & SetValue functions for the huge integer & floating types: long long, unsigned long long, long double.
+ v5.0.0, 2016-05-31, huirak.lee, Moved CRC header in front of the file. Allowed empty section. Removed strict INI header checking. Allowed '#' to describe remark. Exiting LoadFile when there is no key to avoid crash. Enforced test functions. Refactored variable name, etc.
+ v4.3.4, 2016-05-17, huirak.lee, TRACE has renamed d_printf. 
+ v4.3.3, 2016-05-17, huirak.lee, Ported to MINGW32.
+ v4.3.2, 2016-04-21, huirak.lee, Defined EOL character for the cross platform.
+ v4.3.1, 2016-04-18, huirak.lee, Changed long to unsigned int of the CRC table, Fixed warnings under -Wall compile option.
+ v4.3.0, 2016-03-01, huirak.lee, Fixed CRC checking pass hole. Fixed potential eternal parse loop in case of there is no CRC.
+ v4.2.2, 2015-10-28, jungjun.lee, Fixed 'Time of check time of use' issue.
+ v4.2.1, 2015-04-07, huirak.lee, Removed warning: variable 'footerSize' set but not used [-Wunused-but-set-variable]
+ v4.2.0, 2014-11-26, huirak.lee, Added CheckFileIntegrity function to verify broken file after writing a file.
+ v4.1.0, 2013-06-25, huirak.lee, Added length field on each key, value due to SaveFile function crash.
+ v4.0.0, 2013-05-18, huirak.lee, Employed string pool. faster parsing(insertion) speed for the sorted file.
+ v3.0.0, 2013-05-13, huirak.lee, Changed STL map to vector and binary search due to SIGSEGV in QNX platform.
+ v2.5.0, 2013-02-08, huirak.lee, Improved buffer overrun safety with parsing, string compare. add debug function. easy set debug level.
+ v2.4.0, 2013-02-06, huirak.lee, GetValueBuf, SetValueBuf added for easy buf handling.
+ v2.3.0, 2012-11-26, huirak.lee, Optimized for faster reading & writing.
+ v2.2.0, 2012-11-26, huirak.lee, Added key insurance check logic.
+ v2.1.0, 2012-11-25, huirak.lee, Added footer for crc checking.
+ v2.1.0, 2012-11-14, huirak.lee, Added SetValueStrBuf for buffer overrun safety.
+ v2.0.0, 2012-11-14, huirak.lee, Added polymorphic functions of GetValue, SetValue.
+ v1.9.0, 2012-11-12, huirak.lee, Added ByteArrayToHexString, HexStringToByteArray.
+ v1.8.1, 2012-08-07, huirak.lee, Fixed first item omit bug.
+ v1.8.0, 2012-08-07, huirak.lee, Added SetValue.
+ v1.7.0, 2012-07-07, huirak.lee, Added GetValueRaw,SetValueRaw.
+ v1.6.1, 2012-07-07, huirak.lee, Renamed GetValueDword as GetValueUInt, SetValue also.
+ v1.6.0, 2012-03-20, huirak.lee, Ported to QNX 6.3.0
+ v1.5.1, 2010-03-10, huirak.lee, Refactored FindFirstKey, FindNextKey.
+ v1.5.0, 2010-02-22, huirak.lee, Supporting default value.
+ v1.4.0, 2009-11-17, huirak.lee, Optimized performance.
+ v1.3.0, 2009-11-12, huirak.lee, Optimized performance.
+ v1.2.0, 2009-11-11, huirak.lee, Ported to Visual Studio 2005.
+ v1.1.0, 2007-12-27, huirak.lee, Ported to Embedded Visual C++ 4.0, STL.
+ v1.0.0, 2006-05-02, huirak.lee, Created.
+
  Known Bugs.
  * N/A
 
  To Do.
  * Support inline remarks feature. #like this.
- * error C4996: '__sys_errlist': This function or variable may be unsafe. Consider using strerror instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
- * Fix -effc++ option error.
+ * Fix error while enabling the -effc++ compiler option.
 
  TBD.
- * Detect contents changes so that not save the unchanged contents again.
- * Realloc strPool when it is out of space.
+ * Hash sections and keys and reuse it if new one is already in the string pool.
+ * Lightweight mode : Don't allocate the memory for all contents, just index the ini file contents and search it. 
  * Set debug function of the caller.
  * Employ TDD.
  * Partially read, partially update the value, but concerning lower speed. 
@@ -92,7 +92,7 @@
 #include <vector>
 #include <string>
 
-#define LOG_PREFIX "[ini]%s "
+#define LOG_PREFIX "%s[INI]"
 
 #define LOGD(fmt,...) Ini::Dprintf(Ini::Debug, LOG_PREFIX fmt, Ini::GetTimeStamp(), ##__VA_ARGS__)
 #define LOGV(fmt,...) Ini::Dprintf(Ini::Verbose, LOG_PREFIX fmt, Ini::GetTimeStamp(), ##__VA_ARGS__)
@@ -128,10 +128,10 @@ protected:
 	struct Item
 	{
 		const char* key;
-		int keyLen;
+		size_t keyLen;
 		const char* val;
-		int valLen;
-		int valRoom;
+		size_t valLen;
+		size_t valRoom;
 
 		Item() : key(NULL), keyLen(0), val(NULL), valLen(0), valRoom(0) {
 		}
@@ -157,7 +157,7 @@ protected:
 	struct Section
 	{
 		const char* key;
-		int keyLen;		
+		size_t keyLen;
 		ItemList items;
 
 		Section() : key(NULL), keyLen(0) {
@@ -197,10 +197,13 @@ protected:
 	size_t remPool; //remaining pool size
 	unsigned int posPool;
 
-	char iniFileName[256];	
+	char iniFileName[256];
 	static int logLevel;
 
-	void CreateNewItem(Item& newItem, const char* key, const char* val);
+	bool contentsChanged;
+	bool saveChangedFileOnly;
+
+	int CreateItem(Item& newItem, const char* key, const char* val);
 	const char* PushString(const char* s);
 	SectionList::iterator FindSection(const char* sect);
 	ItemList::iterator FindItem(const char* sect, const char*key);
@@ -270,7 +273,7 @@ public:
 	inline void SetValue(const char* sect, const char* key, float val) {SetValueFloat(sect, key, val);}
 	inline void SetValue(const char* sect, const char* key, double val) {SetValueDouble(sect, key, val);}
 	inline void SetValue(const char* sect, const char* key, long double val) {SetValueLongDouble(sect, key, val);}
-	void SetValueStr(const char* sect, const char* key, const char* val, bool sortedFile = false);
+	int SetValueStr(const char* sect, const char* key, const char* val, bool sortedFile = false);
 	void SetValueStrBuf(const char* sect, const char* key, char* buf, size_t bufSize);
 	//TBD: void SetValueStrMulti(const char* sect, const char* key, const char* val);
 	void SetValueInt(const char* sect, const char* key, int val);

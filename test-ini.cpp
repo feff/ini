@@ -389,14 +389,24 @@ void TestReallocStrPool()
 	LOGN("<<%s>>\n", __FUNCTION__);
 
 	Ini ini;
-	Ini::SetLogLevel(Ini::Debug);
+	Ini::SetLogLevel(Ini::Normal);
 	CreateTestSet(ini, 100, 1000);
 	ini.SaveFile("test-realloc.ini");
 }
 
+void TestSaveContentsChangedFileOnly()
+{
+	LOGN("<<%s>>\n", __FUNCTION__);
+
+	Ini ini;
+	Ini::SetLogLevel(Ini::Normal);
+	CreateTestSet(ini, 10, 10);
+	ini.SaveFile("test-contents-changed.ini");
+	ini.SaveFile("test-contents-changed.ini");
+}
+
 int main()
- {
-	TestReallocStrPool();
+{
 	TestGetTimeStampBenchmark();
 	TestBenchmarks();
 	TestLoadFile();
@@ -408,5 +418,7 @@ int main()
 	TestToString();
 	TestSquareBracket();
 	TestDirtyIni();
+	TestReallocStrPool();
+	TestSaveContentsChangedFileOnly();
 	return 0;
 }
